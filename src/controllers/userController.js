@@ -131,32 +131,92 @@ export const createUser = async (req, res) => {
 export const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { nome, email, telefone } = req.body;
+    const { nome, email, cpf, gender, senha, telefone, nivel } = req.body;
 
     const userExist = await prisma.user.findUnique({
-      where: { id: Number(id) }
+      where: {
+        id: Number(id),
+      },
     });
 
     if (!userExist) {
-      return res.status(404).json({ message: "Usuário não encontrado" });
+      return res.status(404).json({
+        message: "Usuário não encontrado",
+      });
+    }
+
+    if (email && email !== userExist.email) {
+      const emailExist = await prisma.user.findUnique({
+        where: {
+          email,
+        },
+      });
+
+      if (emailExist) {
+        return res.status(400).json({
+          message: "Email já cadastrado",
+        });
+      }
+    }
+
+    if (cpf && String(cpf) !== userExist.cpf) {
+      const cpfExist = await prisma.user.findUnique({
+        where: {
+          cpf: String(cpf),
+        },
+      });
+
+      if (cpfExist) {
+        return res.status(400).json({
+          message: "CPF já cadastrado",
+        });
+      }
+    }
+
+    let hashSenha;
+
+    if (senha) {
+      hashSenha = await bcrypt.hash(senha, 10);
     }
 
     const updatedUser = await prisma.user.update({
-      where: { id: Number(id) },
+      where: {
+        id: Number(id),
+      },
       data: {
         nome: nome ?? userExist.nome,
         email: email ?? userExist.email,
-        telefone: telefone ? Number(telefone) : userExist.telefone
-      }
+        cpf: cpf ? String(cpf) : userExist.cpf,
+        gender: gender ?? userExist.gender,
+        telefone: telefone ? String(telefone) : userExist.telefone,
+        password: hashSenha ?? userExist.password,
+
+        // cuidado: só mantenha isso se o cliente puder enviar nível.
+        // geralmente é melhor o próprio cliente não conseguir alterar o nível.
+        nivel: nivel ?? userExist.nivel,
+      },
+      select: {
+        id: true,
+        nome: true,
+        email: true,
+        cpf: true,
+        gender: true,
+        telefone: true,
+        nivel: true,
+      },
     });
 
     return res.status(200).json({
       message: "Usuário atualizado",
-      user: updatedUser
+      user: updatedUser,
     });
-
   } catch (err) {
-    return res.status(500).json({ message: "Erro ao atualizar usuário" });
+    console.error("ERRO AO ATUALIZAR USUÁRIO:", err);
+
+    return res.status(500).json({
+      message: "Erro ao atualizar usuário",
+      error: err.message,
+    });
   }
 };
 

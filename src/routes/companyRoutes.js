@@ -7,7 +7,7 @@ import { authorize } from "../middleware/authorize.js";
 
 const router = express.Router();
 router.get("/", authMiddleware, authorize("ADMIN"), getAllCompanies);
-router.get("/:id", authMiddleware, authorize("ADMIN"), getCompanyById);
+router.get("/:id", authMiddleware, authorize("ADMIN", "CLIENTE"), getCompanyById);
 router.post("/", createCompany);
 router.put("/:id", authMiddleware, authorize("ADMIN", "CLIENTE"), updateCompany);
 router.delete("/:id", authMiddleware, authorize("ADMIN"), deleteCompany);
