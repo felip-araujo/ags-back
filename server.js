@@ -8,11 +8,23 @@ import empresasRoutes from "./src/routes/companyRoutes.js"
 const app = express()
 app.use(express.json())
 
-app.use(cors({
-    origin: "http://localhost:5173",
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-    credentials: true
-}));
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://agsinvest.vercel.app",
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Não permitido pelo CORS"));
+      }
+    },
+    credentials: true,
+  })
+);
 
 
 app.use("/users", userRoutes)
