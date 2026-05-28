@@ -4,6 +4,7 @@ import userRoutes from "./src/routes/userRoutes.js"
 import loginRoutes from "./src/routes/loginRoutes.js"
 import simulacaoRoutes from "./src/routes/simulacaoRutes.js"
 import empresasRoutes from "./src/routes/companyRoutes.js"
+import pagamentoRoutes from "./src/routes/pagamentoRoutes.js"
 
 const app = express()
 app.use(express.json())
@@ -31,12 +32,13 @@ app.use("/users", userRoutes)
 app.use("/login", loginRoutes)
 app.use("/simulacao", simulacaoRoutes)
 app.use("/empresas", empresasRoutes)
+app.use("/pagamentos", pagamentoRoutes)
 
 
 
 
 
 app.listen(3000, () => {
-    console.log("Server running on port 3000");
+  console.log("Server running on port 3000");
 });
 export default app

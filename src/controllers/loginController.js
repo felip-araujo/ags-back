@@ -12,30 +12,43 @@ export const loginUser = async (req, res) => {
       });
     }
 
-    // 🔹 Primeiro procura na tabela User
-    let account = await prisma.user.findUnique({
-      where: { email },
+    const emailNormalizado = email.trim().toLowerCase();
+
+    let account = null;
+    let tipoConta = null;
+
+    // Primeiro procura como Pessoa Física
+    const user = await prisma.user.findUnique({
+      where: {
+        email: emailNormalizado,
+      },
     });
 
-    let tipo = "USER";
-
-    // 🔹 Se não encontrar em User, procura na tabela Company
-    if (!account) {
-      account = await prisma.company.findUnique({
-        where: { email },
-      });
-
-      tipo = "COMPANY";
+    if (user) {
+      account = user;
+      tipoConta = "USER";
     }
 
-    // 🔹 Se não encontrou em nenhuma tabela
+    // Se não encontrou PF, procura como Pessoa Jurídica
     if (!account) {
+      const company = await prisma.company.findUnique({
+        where: {
+          email: emailNormalizado,
+        },
+      });
+
+      if (company) {
+        account = company;
+        tipoConta = "COMPANY";
+      }
+    }
+
+    if (!account || !tipoConta) {
       return res.status(401).json({
         message: "Email ou senha inválidos",
       });
     }
 
-    // 🔹 Verifica senha
     const senhaValida = await bcrypt.compare(senha, account.password);
 
     if (!senhaValida) {
@@ -44,13 +57,13 @@ export const loginUser = async (req, res) => {
       });
     }
 
-    // 🔹 Gera token
     const token = jwt.sign(
       {
+        sub: account.id,
         id: account.id,
         email: account.email,
         nivel: account.nivel,
-        tipo,
+        tipoConta,
       },
       process.env.JWT_SECRET,
       {
@@ -63,11 +76,11 @@ export const loginUser = async (req, res) => {
       token,
       account: {
         id: account.id,
-        nome: account.nome,
+        nome: account.nome || null,
         representante: account.representante || null,
         email: account.email,
         nivel: account.nivel,
-        tipo,
+        tipoConta,
       },
     });
   } catch (error) {

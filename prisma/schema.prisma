@@ -24,6 +24,7 @@ model User {
   nivel     Role     @default(CLIENTE)
 
   aportes   Aporte[]
+  pagamentosInvestimento InvestimentoPagamento[]
 }
 
 model Company {
@@ -37,6 +38,7 @@ model Company {
   nivel     Role     @default(CLIENTE)
 
   aportes   Aporte[]
+  pagamentosInvestimento InvestimentoPagamento[]
 }
 
 model Aporte {
@@ -53,6 +55,43 @@ model Aporte {
   company      Company     @relation(fields: [CompanyId], references: [id])
   
 }
+
+
+model InvestimentoPagamento {
+  id Int @id @default(autoincrement())
+
+  valor Decimal @db.Decimal(12, 2)
+
+  status String @default("pending")
+
+  mercadoPagoPaymentId String? @unique
+  externalReference    String  @unique
+
+  qrCodeBase64 String? @db.LongText
+  qrCode       String? @db.LongText
+  ticketUrl    String? @db.Text
+
+  payerEmail String?
+  descricao  String?
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  companyId Int?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([userId])
+  @@index([companyId])
+}
+
+
+
 
 enum Role {
   ADMIN
