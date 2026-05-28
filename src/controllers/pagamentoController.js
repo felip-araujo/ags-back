@@ -42,9 +42,50 @@ async function consultarPagamentoMercadoPago(paymentId) {
   return data;
 }
 
+
+function calcularPrevisaoAporte(valor, modalidade, meses) {
+  const valorNumber = Number(valor);
+  const mesesNumber = Number(meses);
+
+  if (modalidade === "JUROS_SIMPLES") {
+    const taxa = 0.03;
+    const rendimento = valorNumber * taxa * mesesNumber;
+    const total = valorNumber + rendimento;
+
+    return {
+      modalidade,
+      meses: mesesNumber,
+      taxa: "3% ao mês",
+      rendimento: Number(rendimento.toFixed(2)),
+      total: Number(total.toFixed(2)),
+    };
+  }
+
+  if (modalidade === "JUROS_COMPOSTOS") {
+    const taxaDiaria = 0.0009786645;
+    const dias = (mesesNumber * 365) / 12;
+
+    const total = valorNumber * Math.pow(1 + taxaDiaria, dias);
+    const rendimento = total - valorNumber;
+
+    return {
+      modalidade,
+      meses: mesesNumber,
+      anos: mesesNumber / 12,
+      taxa: "Aproximadamente 0,0978% ao dia",
+      rendimento: Number(rendimento.toFixed(2)),
+      total: Number(total.toFixed(2)),
+    };
+  }
+
+  throw new Error("Modalidade de aporte inválida.");
+}
+
+
+
 export const criarPagamentoPix = async (req, res) => {
   try {
-    const { valor, email, nome, cpf, cnpj } = req.body;
+    const { valor, email, nome, modalidade, meses } = req.body;
 
     if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
       return res.status(500).json({
@@ -66,6 +107,33 @@ export const criarPagamentoPix = async (req, res) => {
       });
     }
 
+    const modalidadesPermitidas = ["JUROS_SIMPLES", "JUROS_COMPOSTOS"];
+
+    if (!modalidadesPermitidas.includes(modalidade)) {
+      return res.status(400).json({
+        message:
+          "Informe uma modalidade válida: JUROS_SIMPLES ou JUROS_COMPOSTOS.",
+      });
+    }
+
+    const mesesNumber = Number(meses);
+
+    if (!mesesNumber || mesesNumber <= 0) {
+      return res.status(400).json({
+        message: "Informe o prazo do aporte.",
+      });
+    }
+
+    if (modalidade === "JUROS_COMPOSTOS") {
+      const periodosPermitidos = [12, 24, 48, 60];
+
+      if (!periodosPermitidos.includes(mesesNumber)) {
+        return res.status(400).json({
+          message: "Para juros compostos, escolha 1, 2, 4 ou 5 anos.",
+        });
+      }
+    }
+
     let userId = null;
     let companyId = null;
     let conta = null;
@@ -79,7 +147,7 @@ export const criarPagamentoPix = async (req, res) => {
 
       if (!conta) {
         return res.status(404).json({
-          message: "Usuário PF não encontrado.",
+          message: "Usuário PF não encontrado. Faça login novamente.",
         });
       }
 
@@ -95,11 +163,17 @@ export const criarPagamentoPix = async (req, res) => {
 
       if (!conta) {
         return res.status(404).json({
-          message: "Empresa PJ não encontrada.",
+          message: "Empresa PJ não encontrada. Faça login novamente.",
         });
       }
 
       companyId = Number(conta.id);
+    }
+
+    if (!conta) {
+      return res.status(400).json({
+        message: "Conta não encontrada para gerar o pagamento.",
+      });
     }
 
     if (!userId && !companyId) {
@@ -110,7 +184,19 @@ export const criarPagamentoPix = async (req, res) => {
 
     const valorNumber = formatarValor(valor);
 
-    const payerEmail = email || conta.email || req.user.email;
+    if (valorNumber < 1000) {
+      return res.status(400).json({
+        message: "Valor mínimo é R$ 1.000,00.",
+      });
+    }
+
+    const previsao = calcularPrevisaoAporte(
+      valorNumber,
+      modalidade,
+      mesesNumber
+    );
+
+    const payerEmail = email || conta?.email || req.user?.email;
 
     if (!payerEmail) {
       return res.status(400).json({
@@ -123,52 +209,40 @@ export const criarPagamentoPix = async (req, res) => {
 
     const nomePagador =
       nome ||
-      conta.nome ||
-      conta.representante ||
+      conta?.nome ||
+      conta?.representante ||
       (tipoConta === "COMPANY" ? "Empresa Investidora" : "Investidor");
+
+    const isPublicApiUrl =
+      process.env.API_PUBLIC_URL &&
+      !process.env.API_PUBLIC_URL.includes("localhost") &&
+      !process.env.API_PUBLIC_URL.includes("127.0.0.1");
 
     const body = {
       transaction_amount: valorNumber,
-      description: "Investimento na plataforma",
+      description: `Aporte - ${modalidade === "JUROS_SIMPLES" ? "Juros simples" : "Juros compostos"
+        }`,
       payment_method_id: "pix",
       external_reference: externalReference,
       date_of_expiration: calcularExpiracaoPixEmISO(60),
-
-      notification_url: process.env.API_PUBLIC_URL
-        ? `${process.env.API_PUBLIC_URL}/webhooks/mercadopago`
-        : undefined,
-
       payer: {
         email: payerEmail,
         first_name: nomePagador,
       },
-
       metadata: {
         tipo: "investimento",
-        tipoConta,
-        userId,
-        companyId,
-        pagadorId: Number(req.user.id),
+        tipo_conta: tipoConta,
+        modalidade,
+        meses: mesesNumber,
         provider: "mercadopago",
       },
     };
 
-    const documentoCpf = cpf ? String(cpf).replace(/\D/g, "") : null;
-    const documentoCnpj = cnpj ? String(cnpj).replace(/\D/g, "") : null;
-
-    if (documentoCpf) {
-      body.payer.identification = {
-        type: "CPF",
-        number: documentoCpf,
-      };
+    if (isPublicApiUrl) {
+      body.notification_url = `${process.env.API_PUBLIC_URL}/webhooks/mercadopago`;
     }
 
-    if (documentoCnpj) {
-      body.payer.identification = {
-        type: "CNPJ",
-        number: documentoCnpj,
-      };
-    }
+    console.log("Payload Mercado Pago:", JSON.stringify(body, null, 2));
 
     const response = await fetch("https://api.mercadopago.com/v1/payments", {
       method: "POST",
@@ -194,49 +268,89 @@ export const criarPagamentoPix = async (req, res) => {
     const transactionData =
       payment?.point_of_interaction?.transaction_data || {};
 
-    const pagamento = await prisma.investimentoPagamento.create({
-      data: {
-        valor: valorNumber,
-        status: payment.status || "pending",
+    const resultado = await prisma.$transaction(async (tx) => {
+      const pagamento = await tx.investimentoPagamento.create({
+        data: {
+          valor: valorNumber,
+          status: payment.status || "pending",
 
-        mercadoPagoPaymentId: String(payment.id),
-        externalReference,
-
-        qrCodeBase64: transactionData.qr_code_base64 || null,
-        qrCode: transactionData.qr_code || null,
-        ticketUrl: transactionData.ticket_url || null,
-
-        payerEmail,
-        descricao: "Investimento na plataforma",
-
-        userId,
-        companyId,
-
-        metadata: {
-          mercadoPagoStatusDetail: payment.status_detail || null,
-          idempotencyKey,
-          tipoConta,
-          pagadorId: Number(req.user.id),
-          provider: "mercadopago",
           mercadoPagoPaymentId: String(payment.id),
+          externalReference,
+
+          qrCodeBase64: transactionData.qr_code_base64 || null,
+          qrCode: transactionData.qr_code || null,
+          ticketUrl: transactionData.ticket_url || null,
+
+          payerEmail,
+          descricao: "Investimento na plataforma",
+
+          userId,
+          companyId,
+
+          metadata: {
+            mercadoPagoStatusDetail: payment.status_detail || null,
+            idempotencyKey,
+            tipoConta,
+            pagadorId: Number(req.user.id),
+            provider: "mercadopago",
+            mercadoPagoPaymentId: String(payment.id),
+            modalidade,
+            meses: mesesNumber,
+            previsao,
+          },
         },
-      },
+      });
+
+      const aporte = await tx.aporte.create({
+        data: {
+          valor: valorNumber,
+          tipo: "PIX",
+          modalidade,
+          meses: mesesNumber,
+          taxa: previsao.taxa,
+          rendimentoEstimado: previsao.rendimento,
+          totalEstimado: previsao.total,
+          status: "PENDENTE",
+
+          userId,
+          companyId,
+
+          pagamentoId: pagamento.id,
+        },
+      });
+
+      return {
+        pagamento,
+        aporte,
+      };
     });
 
     return res.status(201).json({
       message: "Pagamento Pix gerado com sucesso.",
       pagamento: {
-        id: pagamento.id,
-        valor: Number(pagamento.valor),
-        status: pagamento.status,
+        id: resultado.pagamento.id,
+        valor: Number(resultado.pagamento.valor),
+        status: resultado.pagamento.status,
         tipoConta,
-        userId: pagamento.userId,
-        companyId: pagamento.companyId,
-        mercadoPagoPaymentId: pagamento.mercadoPagoPaymentId,
-        qrCodeBase64: pagamento.qrCodeBase64,
-        qrCode: pagamento.qrCode,
-        ticketUrl: pagamento.ticketUrl,
+        userId: resultado.pagamento.userId,
+        companyId: resultado.pagamento.companyId,
+        mercadoPagoPaymentId: resultado.pagamento.mercadoPagoPaymentId,
+        qrCodeBase64: resultado.pagamento.qrCodeBase64,
+        qrCode: resultado.pagamento.qrCode,
+        ticketUrl: resultado.pagamento.ticketUrl,
       },
+      aporte: {
+        id: resultado.aporte.id,
+        valor: resultado.aporte.valor,
+        tipo: resultado.aporte.tipo,
+        modalidade: resultado.aporte.modalidade,
+        meses: resultado.aporte.meses,
+        taxa: resultado.aporte.taxa,
+        rendimentoEstimado: resultado.aporte.rendimentoEstimado,
+        totalEstimado: resultado.aporte.totalEstimado,
+        status: resultado.aporte.status,
+      },
+      simulacao: previsao,
     });
   } catch (err) {
     console.error("Erro ao criar pagamento Pix:", err);

@@ -44,16 +44,26 @@ model Company {
 model Aporte {
   id        Int      @id @default(autoincrement())
   valor     Float
-  tipo      String?  // exemplo: PIX, TED, BOLETO
+
+  tipo      String?  // PIX, TED, BOLETO
+  modalidade String? // JUROS_SIMPLES, JUROS_COMPOSTOS
+
+  meses     Int?
+  taxa      String?
+  rendimentoEstimado Float?
+  totalEstimado      Float?
+
   status    String   @default("PENDENTE")
   createdAt DateTime @default(now())
 
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  CompanyId    Int
-  company      Company     @relation(fields: [CompanyId], references: [id])
-  
+  companyId Int?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  pagamentoId Int? @unique
+  pagamento   InvestimentoPagamento? @relation(fields: [pagamentoId], references: [id], onDelete: SetNull)
 }
 
 
@@ -81,6 +91,7 @@ model InvestimentoPagamento {
   company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
   metadata Json?
+  aporte Aporte?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
